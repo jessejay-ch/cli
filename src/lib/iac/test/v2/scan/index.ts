@@ -18,6 +18,68 @@ const debug = newDebug('snyk-iac');
 
 export const systemCachePath = config.CACHE_PATH ?? envPaths('snyk').cache;
 
+export async function scanV2(
+  options: TestConfig,
+  policyEnginePath: string,
+  rulesBundlePath: string,
+): Promise<number> {
+  const {
+    tempDir: tempDirPath,
+    tempPolicy: tempPolicyPath,
+  } = await createTemporaryFiles(options);
+  try {
+    return await scanWithConfigV2(
+      options,
+      policyEnginePath,
+      rulesBundlePath,
+      tempPolicyPath,
+    );
+  } finally {
+    await deleteTemporaryFiles(tempDirPath);
+  }
+}
+
+async function scanWithConfigV2(
+  options: TestConfig,
+  policyEnginePath: string,
+  rulesBundlePath: string,
+  policyPath: string,
+): Promise<number> {
+  const env = processEnv();
+
+  const args = processFlagsV2(options, rulesBundlePath, policyPath);
+
+  // We can simplify the execution of snyk-iac-test by using spawnSync() instead
+  // of spawn(). Since snyk-iac-test inherits the stdout of the program, any
+  // dynamic behavior (like the spinner) will be handled by snyk-iac-test. We
+  // don't care anymore about blocking the Node event loop wile snyk-iac-test is
+  // running.
+
+  const child = childProcess.spawnSync(policyEnginePath, args, {
+    env,
+    stdio: ['inherit', 'inherit', 'pipe'],
+    encoding: 'utf-8',
+  });
+
+  if (child.stderr) {
+    debug(child.stderr);
+  }
+
+  if (child.signal) {
+    throw new Error(`process terminated with signal ${child.signal}`);
+  }
+
+  if (child.error) {
+    throw child.error;
+  }
+
+  if (child.status) {
+    return child.status;
+  }
+
+  return 0;
+}
+
 export async function scan(
   options: TestConfig,
   policyEnginePath: string,
@@ -48,16 +110,7 @@ async function scanWithConfig(
   outputPath: string,
   policyPath: string,
 ): Promise<TestOutput> {
-  const env = { ...process.env };
-
-  env['SNYK_IAC_TEST_API_REST_URL'] =
-    process.env['SNYK_IAC_TEST_API_REST_URL'] || getApiUrl();
-  env['SNYK_IAC_TEST_API_REST_TOKEN'] =
-    process.env['SNYK_IAC_TEST_API_REST_TOKEN'] || getApiToken();
-  env['SNYK_IAC_TEST_API_V1_URL'] =
-    process.env['SNYK_IAC_TEST_API_V1_URL'] || getApiUrl();
-  env['SNYK_IAC_TEST_API_V1_TOKEN'] =
-    process.env['SNYK_IAC_TEST_API_V1_TOKEN'] || getApiToken();
+  const env = processEnv();
 
   const args = processFlags(options, rulesBundlePath, outputPath, policyPath);
 
@@ -81,6 +134,21 @@ async function scanWithConfig(
   } catch (e) {
     throw new ScanError(`invalid output encoding: ${e}`);
   }
+}
+
+function processEnv() {
+  let env = process.env;
+
+  env = addEnv(env, 'SNYK_IAC_TEST_API_REST_URL', getApiUrl());
+  env = addEnv(env, 'SNYK_IAC_TEST_API_REST_TOKEN', getApiToken());
+  env = addEnv(env, 'SNYK_IAC_TEST_API_V1_URL', getApiUrl());
+  env = addEnv(env, 'SNYK_IAC_TEST_API_V1_TOKEN', getApiToken());
+
+  return env;
+}
+
+function addEnv(env, k, v) {
+  return { ...env, [k]: process.env[k] || v };
 }
 
 function processFlags(
@@ -147,6 +215,73 @@ function processFlags(
   if (options.org) {
     flags.push('-org', options.org);
   }
+
+  return flags;
+}
+
+function processFlagsV2(
+  options: TestConfig,
+  rulesBundlePath: string,
+  policyPath: string,
+) {
+  const flags = [
+    '-cache-dir',
+    systemCachePath,
+    '-bundle',
+    rulesBundlePath,
+    '-policy',
+    policyPath,
+  ];
+
+  if (options.severityThreshold) {
+    flags.push('-severity-threshold', options.severityThreshold);
+  }
+
+  if (options.depthDetection) {
+    flags.push('-depth-detection', `${options.depthDetection}`);
+  }
+
+  if (options.report && allowAnalytics()) {
+    flags.push('-report');
+  }
+
+  if (options.targetReference) {
+    flags.push('-target-reference', options.targetReference);
+  }
+
+  if (options.targetName) {
+    flags.push('-target-name', options.targetName);
+  }
+
+  if (options.scan) {
+    flags.push('-scan', options.scan);
+  }
+
+  if (options.remoteRepoUrl) {
+    flags.push('-remote-repo-url', options.remoteRepoUrl);
+  }
+
+  if (options.varFile) {
+    flags.push('-var-file', options.varFile);
+  }
+
+  if (options.cloudContext) {
+    flags.push('-cloud-context', options.cloudContext);
+  }
+
+  if (options.snykCloudEnvironment) {
+    flags.push('-snyk-cloud-environment', options.snykCloudEnvironment);
+  }
+
+  if (options.insecure) {
+    flags.push('-http-tls-skip-verify');
+  }
+
+  if (options.org) {
+    flags.push('-org', options.org);
+  }
+
+  flags.push(...options.paths);
 
   return flags;
 }
@@ -218,7 +353,7 @@ async function readFile(path: string) {
 }
 
 async function remove(path: string) {
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     rimraf(path, (err) => {
       if (err) {
         reject(err);

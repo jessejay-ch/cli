@@ -1,5 +1,5 @@
 import { TestConfig } from './types';
-import { scan } from './scan';
+import { scan, scanV2 } from './scan';
 import { TestOutput } from './scan/results';
 import { initLocalCache } from './local-cache';
 import { addIacAnalytics } from './analytics';
@@ -16,4 +16,12 @@ export async function test(testConfig: TestConfig): Promise<TestOutput> {
   addIacAnalytics(testConfig, testOutput);
 
   return testOutput;
+}
+
+export async function testV2(testConfig: TestConfig): Promise<number> {
+  const { policyEnginePath, rulesBundlePath } = await initLocalCache(
+    testConfig,
+  );
+
+  return await scanV2(testConfig, policyEnginePath, rulesBundlePath);
 }

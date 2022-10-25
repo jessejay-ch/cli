@@ -17,7 +17,20 @@ export async function test(
   options: IaCTestFlags,
 ): Promise<TestCommandResult> {
   assertIacV2Options(options);
+
   const testConfig = await prepareTestConfig(paths, options);
+
+  // If SNYK_IAC_TEST_OUTPUT is set, this command will never return to the
+  // caller. Therefore, the code in src/cli/main.ts will not have a chance to
+  // run. By doing this, the command will not send out analytics. This can be
+  // fixed by having this command return TestCommandResult | void, but I didn't
+  // want to change more code than needed for a POC. For the moment, this
+  // command will exit with with the same exit code that snyk-iac-test exits
+  // with.
+
+  if (process.env['SNYK_IAC_TEST_OUTPUT'] === '1') {
+    process.exit(await testLib.testV2(testConfig));
+  }
 
   const testSpinner = buildSpinner(options);
 
