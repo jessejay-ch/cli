@@ -32,6 +32,10 @@ export function apiOrOAuthTokenExists() {
   return apiTokenExists();
 }
 
+export function getAuthToken(): string {
+  return getOAuthToken() || getDockerToken() || apiTokenExists();
+}
+
 export function getAuthHeader(): string {
   const oauthToken: string | undefined = getOAuthToken();
   const dockerToken: string | undefined = getDockerToken();

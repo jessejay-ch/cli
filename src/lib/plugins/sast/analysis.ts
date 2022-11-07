@@ -5,7 +5,7 @@ import {
 } from '@snyk/code-client';
 import { ReportingDescriptor, Result } from 'sarif';
 import { SEVERITY } from '../../snyk-test/legacy';
-import { api } from '../../api-token';
+import { getAuthToken } from '../../api-token';
 import config from '../../config';
 import { spinner } from '../../spinner';
 import { Options } from '../../types';
@@ -76,7 +76,7 @@ async function getCodeAnalysis(
     });
   }
 
-  const sessionToken = api() || '';
+  const sessionToken = getAuthToken();
 
   const severity = options.severityThreshold
     ? severityToAnalysisSeverity(options.severityThreshold)
