@@ -12,6 +12,7 @@ import { EcosystemPlugin } from '../../ecosystems/types';
 import { FailedToRunTestError, NoSupportedSastFiles } from '../../errors';
 import { jsonStringifyLargeObject } from '../../json';
 import * as analytics from '../../analytics';
+import { uploadCodeReport } from './report';
 
 const debug = debugLib('snyk-code');
 
@@ -49,18 +50,45 @@ export const codePlugin: EcosystemPlugin = {
       if (!newOrg && sastSettings.org) {
         newOrg = sastSettings.org;
       }
-      const meta = getMeta({ ...options, org: newOrg }, path);
-      const prefix = getPrefix(path);
-      let readableResult = getCodeDisplayedOutput(
-        sarifTypedResult!,
-        meta,
-        prefix,
-      );
-      if (numOfIssues > 0 && options['no-markdown']) {
-        sarifTypedResult.runs?.[0].results?.forEach(({ message }) => {
-          delete message.markdown;
+
+      let readableResult: string;
+
+      // Share results (CLI upload)
+      // WIP prototype implementation
+      // TODO: separate flows in order to do analysis orchestration in API and not send issue data from client.
+      // TODO: Better define what happens to other options like JSON/Sarif output when this is set.
+      if (options.report) {
+        // TODO: what kind of sanitisation does this need? What characters are supported? Should it be slug-ified?
+        const projectName = options['project-name'];
+        if (!projectName || projectName?.trim().length === 0) {
+          throw new FailedToRunTestError('No project name specified');
+        }
+
+        readableResult = await uploadCodeReport({
+          org: newOrg ?? null,
+          results: sarifTypedResult,
+          projectName,
         });
+      } else {
+        const meta = getMeta({ ...options, org: newOrg }, path);
+        const prefix = getPrefix(path);
+        readableResult = getCodeDisplayedOutput(
+          sarifTypedResult!,
+          meta,
+          prefix,
+        );
+
+        if (numOfIssues > 0 && options['no-markdown']) {
+          sarifTypedResult.runs?.[0].results?.forEach(({ message }) => {
+            delete message.markdown;
+          });
+        }
+
+        if (options.sarif || options.json) {
+          readableResult = jsonStringifyLargeObject(sarifTypedResult);
+        }
       }
+
       let sarifResult: string | undefined;
       if (options['sarif-file-output']) {
         sarifResult = jsonStringifyLargeObject(sarifTypedResult);
@@ -69,9 +97,7 @@ export const codePlugin: EcosystemPlugin = {
       if (options['json-file-output']) {
         jsonResult = jsonStringifyLargeObject(sarifTypedResult);
       }
-      if (options.sarif || options.json) {
-        readableResult = jsonStringifyLargeObject(sarifTypedResult);
-      }
+
       if (numOfIssues > 0) {
         throwIssuesError({ readableResult, sarifResult, jsonResult });
       }

@@ -1,6 +1,7 @@
+import { EOL } from 'os';
+import chalk from 'chalk';
 import * as Sarif from 'sarif';
 import * as Debug from 'debug';
-import chalk from 'chalk';
 import { icon, color } from '../../../theme';
 import { colorTextBySeverity, SEVERITY } from '../../../snyk-test/common';
 import { rightPadWithSpaces } from '../../../right-pad';
@@ -161,4 +162,15 @@ export function getMeta(options: Options, path: string): string {
 
 export function getPrefix(path: string): string {
   return chalk.bold.white('\nTesting ' + path + ' ...\n\n');
+}
+
+export function getCodeReportDisplayedOutput(projectUrl: string): string {
+  return (
+    chalk.bold('Report Complete') +
+    EOL +
+    EOL +
+    'Your test results are available at:' +
+    EOL +
+    chalk.bold(projectUrl)
+  );
 }
