@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "patchable application",
   "dependencies": {
-    "ms": "^1.0.0"
+    "ms": "^2.0.0"
   },
   "devDependencies": {}
 }
