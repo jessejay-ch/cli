@@ -13,6 +13,6 @@
   },
   "devDependencies": {
     "object-assign": "4.1.1",
-    "rewire": "^4.0.1"
+    "rewire": "^6.0.0"
   }
 }
