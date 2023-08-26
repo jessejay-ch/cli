@@ -55,12 +55,15 @@ async function prepareTestConfig(
   const cloudContext = getFlag(options, 'cloud-context');
   const snykCloudEnvironment = getFlag(options, 'snyk-cloud-environment');
   const insecure = options.insecure;
+  const customRules = options['custom-rules'];
+  const experimental = options.experimental;
 
   return {
     paths,
     iacCachePath,
     userRulesBundlePath: config.IAC_BUNDLE_PATH,
     userPolicyEnginePath: config.IAC_POLICY_ENGINE_PATH,
+    userRulesClientURL: config.IAC_RULES_CLIENT_URL,
     severityThreshold: options.severityThreshold,
     report: !!options.report,
     targetReference: options['target-reference'],
@@ -74,5 +77,7 @@ async function prepareTestConfig(
     snykCloudEnvironment,
     insecure,
     org,
+    customRules,
+    experimental,
   };
 }
