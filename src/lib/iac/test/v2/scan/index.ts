@@ -15,6 +15,7 @@ import envPaths from 'env-paths';
 import { restoreEnvProxy } from '../../../env-utils';
 
 const debug = newDebug('snyk-iac');
+const debugOutput = newDebug('snyk-iac:output');
 
 export const systemCachePath = config.CACHE_PATH ?? envPaths('snyk').cache;
 
@@ -22,6 +23,7 @@ export async function scan(
   options: TestConfig,
   policyEnginePath: string,
   rulesBundlePath: string,
+  rulesClientURL: string,
 ): Promise<TestOutput> {
   const {
     tempOutput: outputPath,
@@ -33,8 +35,9 @@ export async function scan(
       options,
       policyEnginePath,
       rulesBundlePath,
-      outputPath,
+      rulesClientURL,
       tempPolicyPath,
+      outputPath,
     );
   } finally {
     await deleteTemporaryFiles(tempDirPath);
@@ -45,8 +48,9 @@ async function scanWithConfig(
   options: TestConfig,
   policyEnginePath: string,
   rulesBundlePath: string,
-  outputPath: string,
+  rulesClientURL: string,
   policyPath: string,
+  outputPath: string,
 ): Promise<TestOutput> {
   const env = { ...process.env };
 
@@ -63,7 +67,13 @@ async function scanWithConfig(
   env['SNYK_IAC_TEST_API_V1_OAUTH_TOKEN'] =
     process.env['SNYK_IAC_TEST_API_V1_OAUTH_TOKEN'] || getOAuthToken();
 
-  const args = processFlags(options, rulesBundlePath, outputPath, policyPath);
+  const args = processFlags(
+    options,
+    rulesBundlePath,
+    rulesClientURL,
+    outputPath,
+    policyPath,
+  );
 
   args.push(...options.paths);
 
@@ -79,7 +89,13 @@ async function scanWithConfig(
     throw new ScanError(`spawning process: ${child.error}`);
   }
 
-  return mapSnykIacTestOutputToTestOutput(await readJson(outputPath));
+  const results = await readJson(outputPath);
+
+  if (debugOutput.enabled) {
+    debugOutput('snyk-iac-test output:\n', JSON.stringify(results, null, 2));
+  }
+
+  return mapSnykIacTestOutputToTestOutput(results);
 }
 
 async function readJson(path: string) {
@@ -93,17 +109,11 @@ async function readJson(path: string) {
 function processFlags(
   options: TestConfig,
   rulesBundlePath: string,
+  rulesClientURL: string,
   outputPath: string,
   policyPath: string,
 ) {
-  const flags = [
-    '-cache-dir',
-    systemCachePath,
-    '-bundle',
-    rulesBundlePath,
-    '-policy',
-    policyPath,
-  ];
+  const flags = ['-bundle', rulesBundlePath, '-policy', policyPath];
 
   flags.push('-output', outputPath);
 
@@ -139,10 +149,6 @@ function processFlags(
     flags.push('-var-file', options.varFile);
   }
 
-  if (options.cloudContext) {
-    flags.push('-cloud-context', options.cloudContext);
-  }
-
   if (options.snykCloudEnvironment) {
     flags.push('-snyk-cloud-environment', options.snykCloudEnvironment);
   }
@@ -155,14 +161,8 @@ function processFlags(
     flags.push('-org', options.org);
   }
 
-  if (options.customRules) {
-    if (options.experimental) {
-      flags.push('-custom-rules');
-    } else {
-      debug(
-        '--custom-rules specified without --experimental. ignoring --custom-rules.',
-      );
-    }
+  if (options.userRulesClientURL) {
+    flags.push('-rulesClientURL', rulesClientURL);
   }
 
   return flags;

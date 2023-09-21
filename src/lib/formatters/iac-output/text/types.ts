@@ -16,8 +16,8 @@ export type FormattedOutputResultsBySeverity = {
 
 export type FormattedOutputResult = {
   issue: Issue;
-  targetFile: string;
   projectType: IacProjectType | State.InputTypeEnum;
+  targetFile?: string;
 };
 
 export interface IacTestCounts {
@@ -32,6 +32,15 @@ export interface IacTestCounts {
 export type IaCTestFailure = {
   filePath: string;
   failureReason: string | undefined;
+};
+
+export type IaCTestWarning = {
+  filePath: string;
+  warningReason: string | undefined;
+  term: string | undefined;
+  modules: string[] | undefined;
+  module: string | undefined;
+  expressions: string[] | undefined;
 };
 
 export type Issue = Pick<
