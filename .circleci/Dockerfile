@@ -1,11 +1,13 @@
-FROM --platform=$BUILDPLATFORM golang:1.20
+FROM --platform=$TARGETPLATFORM golang:1.20-bullseye
 
 # install "normal" stuff
 
 ARG NODEVERSION
-RUN echo "Node version: $NODEVERSION"
+ARG ARCH
+
+RUN echo "Required Node version: $NODEVERSION"
+RUN curl -sL https://deb.nodesource.com/setup_$(echo $NODEVERSION | cut -f1 -d '.').x | bash -
 RUN apt-get update
-RUN curl -sL https://deb.nodesource.com/setup_$NODEVERSION.x | bash -
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     sudo \
     musl-tools \
@@ -14,50 +16,61 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     make \
     maven \
     gradle \
-    openjdk-11-jdk-headless \
-    openjdk-11-jre-headless \
     python3 \
     python3-pip \
     python-is-python3 \
+    pipenv \
     apt-transport-https \
     curl \
     gnupg \
     -yqq \
-    nodejs \
     elixir \
     composer \
     jq \
-    cmake \
-    libssl-dev \
-    libcurl4-openssl-dev \
-    faketime
-
-# install aws cli
-RUN pip install awscli --upgrade --user
-
-# install scala
-RUN echo "deb https://repo.scala-sbt.org/scalasbt/debian all main" | tee /etc/apt/sources.list.d/sbt.list
-RUN echo "deb https://repo.scala-sbt.org/scalasbt/debian /" | tee /etc/apt/sources.list.d/sbt_old.list
-RUN curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2EE0EA64E40A89B84B2DF73499E82A75642AC823" | gpg --no-default-keyring --keyring gnupg-ring:/etc/apt/trusted.gpg.d/scalasbt-release.gpg --import
-RUN chmod 644 /etc/apt/trusted.gpg.d/scalasbt-release.gpg
-RUN apt-get update
-RUN apt-get install sbt
+    faketime \
+    zip \
+    nodejs=$(apt-cache policy nodejs | grep nodesource | xargs | cut -d " " -f2)
 RUN apt-get auto-remove -y && apt-get clean -y && rm -rf /var/lib/apt/
 
-RUN curl -sSL https://github.com/mtrojnar/osslsigncode/releases/download/2.5/osslsigncode-2.5.tar.gz > osslsigncode-2.5.tar.gz && tar -xzf osslsigncode-2.5.tar.gz
-RUN cd osslsigncode-2.5 && mkdir -p build && cd build && cmake -S .. && make install && cd .. && cd ..
-RUN rm -rf osslsigncode-2.5*
-
-ENV PATH=/usr/local/bin/:$PATH
-
-# pre-install npm packages
-ADD package.json /tmp/package.json
-RUN cd /tmp && npm install -g
-RUN rm /tmp/package.json
+# install aws cli
+ADD .circleci/awscli-publickey.pub awscli-publickey.pub
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-$ARCH.zip" -o "awscliv2.zip"
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-$ARCH.zip.sig" -o "awscliv2.sig"
+RUN gpg --import awscli-publickey.pub
+RUN gpg --verify awscliv2.sig awscliv2.zip
+RUN unzip awscliv2.zip
+RUN sudo ./aws/install
+RUN rm -rf "awscli*"
 
 RUN useradd circleci --create-home
 RUN echo "circleci ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# install snyk
+ADD scripts/ scripts/
+RUN mkdir -p /target/global-logging
+RUN chown -R circleci scripts /target && chmod 770 scripts/*
+
+RUN scripts/install-swift.sh $ARCH
+ENV PATH=/usr/local/swift/usr/bin:$PATH
+
+# install openssl3
+RUN scripts/install_openssl3_fips.sh
+ENV PATH=/usr/local/bin/:$PATH
+ENV LD_LIBRARY_PATH=/usr/local/lib/
+
 USER circleci
+# install java & scala
+RUN curl -s "https://get.sdkman.io" | bash
+RUN scripts/jvm-install.sh
+ENV PATH=/home/circleci/.sdkman/candidates/scala/current/bin:/home/circleci/.sdkman/candidates/sbt/current/bin:/home/circleci/.sdkman/candidates/java/current/bin:$PATH
+
+# install dotnet
+RUN curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 7.0
+ENV PATH=/home/circleci/.dotnet:$PATH
+
+ENV TEMP=/tmp
+ENV TMP=$TEMP
+ENV TMPDIR=$TEMP
 
 WORKDIR /
 ENTRYPOINT [""]

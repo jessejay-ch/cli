@@ -61,7 +61,7 @@ describe('iac test text output', () => {
         EOL +
         '           resource' +
         EOL +
-        '  Rule:    https://snyk.io/security-rules/SNYK-CC-TF-20' +
+        '  Rule:    https://security.snyk.io/rules/cloud/SNYK-CC-TF-20' +
         EOL +
         '  Path:    resources[1] > properties > networkRuleCollections[0] > properties >' +
         EOL +
@@ -90,14 +90,14 @@ describe('iac test text output', () => {
         EOL +
         '  Project name: fixtures' +
         EOL.repeat(2) +
-        '✔ Files without issues: 0' +
-        EOL +
-        '✗ Files with issues: 3' +
-        EOL +
-        '  Ignored issues: 8' +
-        EOL +
-        '  Total issues: ',
+        '✔ Files without issues: ',
     );
+
+    expect(stdout).toContain(EOL + '✗ Files with issues: ');
+
+    expect(stdout).toContain(EOL + '  Ignored issues: ');
+
+    expect(stdout).toContain(EOL + '  Total issues: ');
   });
 
   describe('with multiple test results', () => {

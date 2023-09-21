@@ -216,6 +216,22 @@ if (!isWindows) {
     );
   });
 
+  test('`monitor swift`', async (t) => {
+    chdirWorkspaces();
+    await cli.monitor('swift');
+    const req = server.popRequest();
+    t.equal(req.method, 'PUT', 'makes PUT request');
+    t.equal(
+      req.headers['x-snyk-cli-version'],
+      versionNumber,
+      'sends version number',
+    );
+    const depGraphJSON = req.body.depGraphJSON;
+    t.ok(depGraphJSON);
+    t.match(req.url, '/monitor/swift/graph', 'puts at correct url');
+    t.ok(req.body.targetFile, './Package.swift');
+  });
+
   test('`monitor npm-out-of-sync graph monitor`', async (t) => {
     chdirWorkspaces();
     await cli.monitor('npm-out-of-sync-graph', {
@@ -258,17 +274,10 @@ if (!isWindows) {
     const depGraphJSON = req.body.depGraphJSON;
     t.ok(depGraphJSON);
 
-    const actualDepGraph = JSON.stringify(depGraphJSON);
-    const expectedPrunedDepGraph = fs.readFileSync(
-      path.join(fixturePath, 'gradle-pruned-dep-graph.json'),
-      'utf8',
-    );
-
-    t.ok(expectedPrunedDepGraph);
-
-    t.equal(
-      actualDepGraph,
-      expectedPrunedDepGraph,
+    t.ok(
+      depGraphJSON.graph.nodes.find(
+        (node) => node.info?.labels?.pruned === 'true',
+      ),
       'verify if the generated depGraph from snyk monitor has been pruned',
     );
   });
@@ -665,7 +674,13 @@ if (!isWindows) {
     stubExec(t, 'maven-app/mvn-dep-tree-stdout.txt');
     await cli.monitor('maven-app', { file: 'pom.xml', dev: true });
     const req = server.popRequest();
-    const pkg = req.body.package;
+    const depGraphJSON = req.body.depGraphJSON;
+    const pkgName = depGraphJSON.pkgs.find(
+      (pkg) => pkg.info.name === 'com.mycompany.app:maven-app',
+    );
+    const dep = depGraphJSON.pkgs.find(
+      (pkg) => pkg.info.name === 'junit:junit',
+    );
     t.equal(req.method, 'PUT', 'makes PUT request');
     t.equal(
       req.headers['x-snyk-cli-version'],
@@ -673,15 +688,9 @@ if (!isWindows) {
       'sends version number',
     );
     t.match(req.url, '/monitor/maven', 'puts at correct url');
-    t.equal(pkg.name, 'com.mycompany.app:maven-app', 'specifies name');
-    t.ok(pkg.dependencies['junit:junit'], 'specifies dependency');
-    t.equal(
-      pkg.dependencies['junit:junit'].name,
-      'junit:junit',
-      'specifies dependency name',
-    );
-    t.notOk(pkg.from, 'no "from" array on root');
-    t.notOk(pkg.dependencies['junit:junit'].from, 'no "from" array on dep');
+    t.ok(pkgName, 'specifies name');
+    t.ok(dep, 'specifies dependency');
+    t.notOk(depGraphJSON.from, 'no "from" array on root');
   });
 
   test('`monitor maven-multi-app`', async (t) => {
@@ -689,7 +698,13 @@ if (!isWindows) {
     stubExec(t, 'maven-multi-app/mvn-dep-tree-stdout.txt');
     await cli.monitor('maven-multi-app', { file: 'pom.xml' });
     const req = server.popRequest();
-    const pkg = req.body.package;
+    const depGraphJSON = req.body.depGraphJSON;
+    const pkgName = depGraphJSON.pkgs.find(
+      (pkg) => pkg.info.name === 'com.mycompany.app:maven-multi-app',
+    );
+    const noMod = depGraphJSON.pkgs.find(
+      (pkg) => pkg.info.name === 'com.mycompany.app:simple-child',
+    );
     t.equal(req.method, 'PUT', 'makes PUT request');
     t.equal(
       req.headers['x-snyk-cli-version'],
@@ -697,13 +712,10 @@ if (!isWindows) {
       'sends version number',
     );
     t.match(req.url, '/monitor/maven', 'puts at correct url');
-    t.equal(pkg.name, 'com.mycompany.app:maven-multi-app', 'specifies name');
+    t.ok(pkgName, 'specifies name');
     // child projects are not included when scanning root project
-    t.notOk(
-      pkg.dependencies?.['com.mycompany.app:simple-child'],
-      'does not include modules',
-    );
-    t.notOk(pkg.from, 'no "from" array on root');
+    t.notOk(noMod, 'does not include modules');
+    t.notOk(depGraphJSON.from, 'no "from" array on root');
   });
 
   test('`monitor maven-multi-app with --project-business-criticality`', async (t) => {

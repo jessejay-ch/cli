@@ -37,33 +37,21 @@ git pull --ff-only
 If you encounter vague errors without a clear solution at any point, try starting over by cloning a new copy or cleaning the project.
 
 ```
-npm run clean
+make clean
 ```
 
 ## Building
 
-Install project dependencies.
+To build the project, run the following command in the root of the repository.
 
 ```sh
-npm ci
+make build
 ```
 
-Build the project.
+Run the build binary like this.
 
 ```sh
-npm run build
-```
-
-Ensure the build is working. The version should be `1.0.0-monorepo`.
-
-```sh
-npx . --version
-```
-
-For faster rebuilds, you can watch for changes. This command will keep running so you will want to run this in a separate terminal or background.
-
-```
-npm run watch
+./binary-releases/snyk-macos --version
 ```
 
 ## Running tests
@@ -140,7 +128,11 @@ npm ci
 npm install <your dependency>
 ```
 
-It's best to avoid adding external dependencies. All dependency changes are reviewed by Hammer.
+It's best to avoid adding external dependencies. All dependency changes are reviewed by Hammerhead.
+
+## Adding features in beta
+
+When implementing a feature that is at first in beta state, consider requiring the `--experimental` flag to be set. This increases visibility in the state of the feature being used.
 
 ## Code formatting
 
@@ -188,7 +180,7 @@ You can use these patterns in your branch name to enable additional checks.
 | ------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `chore/*`, `*test*` | `chore/change`, `test/change`, `feat/change+test` | Build and test all artifacts, excluding CLIv2. Same as a [release pipeline](#creating-a-release) without the release step. |
 | `smoke/*`           | `smoke/change`                                    | Run [smoke tests](https://github.com/snyk/cli/actions/workflows/smoke-tests.yml) against the latest release.               |
-| `*cliv2*`           | `feat/cliv2-feature`                              | Build and test all artifacts, including CLIv2.                                                                             |
+| `*e2e*`             | `chore/feature1_e2e`                              | Run parts of the deployment pipeline to cover end to end tests already on the current branch                               |
 | default             | `fix/a-bug`                                       | Build and test your changes.                                                                                               |
 
 For more information, see: [Pull request checks](#pull-request-checks).
@@ -262,7 +254,7 @@ Your PR checks will run every time you push changes to your branch.
 | `test_and_release` | See: [Test pipeline](#test-pipeline).                                 |
 | `Danger`           | Check the comment created on your PR.                                 |
 | `license/cla`      | Visit [CLA Assistant](https://cla-assistant.io) to sign or re-run it. |
-| Everything else.   | Ask Hammer.                                                           |
+| Everything else.   | Ask Hammerhead.                                                       |
 
 ### Test pipeline
 
@@ -288,10 +280,10 @@ All releases are minor version bumps. For the latest releases, see: [Releases](h
 
 If you do not want to publish your changes immediately, you can "Cancel Workflow".
 
-If your release pipeline fails at any step, notify Hammer.
+If your release pipeline fails at any step, notify Hammerhead.
 
 You may see some "Docker Hub" checks on your merge commit fail. This is normal and safe to ignore.
 
 ---
 
-Questions? Ask Hammer 🔨
+Questions? Ask Hammerhead 🔨
