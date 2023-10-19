@@ -12,11 +12,13 @@ import (
 	"os"
 
 	"github.com/google/uuid"
+	"github.com/snyk/go-application-framework/pkg/configuration"
+
+	"github.com/snyk/go-application-framework/pkg/networking/certs"
+	"github.com/snyk/go-httpauth/pkg/httpauth"
 
 	"github.com/snyk/cli/cliv2/internal/constants"
 	"github.com/snyk/cli/cliv2/internal/utils"
-	"github.com/snyk/go-application-framework/pkg/networking/certs"
-	"github.com/snyk/go-httpauth/pkg/httpauth"
 
 	"github.com/elazarl/goproxy"
 	"github.com/elazarl/goproxy/ext/auth"
@@ -48,11 +50,14 @@ const (
 	PROXY_USERNAME = "snykcli"
 )
 
-func NewWrapperProxy(insecureSkipVerify bool, cacheDirectory string, cliVersion string, debugLogger *log.Logger) (*WrapperProxy, error) {
+func NewWrapperProxy(config configuration.Configuration, cliVersion string, debugLogger *log.Logger) (*WrapperProxy, error) {
 	var p WrapperProxy
 	p.DebugLogger = debugLogger
 	p.cliVersion = cliVersion
 	p.addHeaderFunc = func(request *http.Request) error { return nil }
+
+	cacheDirectory := config.GetString(configuration.CACHE_PATH)
+	insecureSkipVerify := config.GetBool(configuration.INSECURE_HTTPS)
 
 	certName := "snyk-embedded-proxy"
 	certPEMBlock, keyPEMBlock, err := certs.MakeSelfSignedCert(certName, []string{}, p.DebugLogger)
@@ -136,7 +141,7 @@ func (p *WrapperProxy) ProxyInfo() *ProxyInfo {
 func (p *WrapperProxy) replaceVersionHandler(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 	err := p.addHeaderFunc(r)
 	if err != nil {
-		p.DebugLogger.Printf("Failed to add header")
+		p.DebugLogger.Printf("Failed to add header: %s", err)
 	}
 
 	return r, nil

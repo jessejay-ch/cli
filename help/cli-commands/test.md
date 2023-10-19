@@ -6,7 +6,9 @@
 
 ## Description
 
-The `snyk test` command checks projects for open source vulnerabilities and license issues. The test command tries to auto-detect supported manifest files with dependencies and test those.
+The `snyk test` command checks projects for open-source vulnerabilities and license issues. The test command tries to auto-detect supported manifest files with dependencies and test those.
+
+**Note:** There are specific `snyk test` commands for the Snyk Code, Container, and IaC scanning methods: `code test`, `container test`, and `iac test`.
 
 ## Exit codes
 
@@ -138,8 +140,6 @@ For C++ only, scan all files for known open source dependencies.
 
 For options you can use with `--unmanaged` see [Options for scanning using `--unmanaged`](https://docs.snyk.io/snyk-cli/commands/test#options-for-scanning-using-unmanaged)
 
-For more information see [Snyk for C/C++](https://docs.snyk.io/products/snyk-open-source/language-and-package-manager-support/snyk-for-c-c++)
-
 ### `--ignore-policy`
 
 Ignore all set policies, the current policy in the `.snyk` file, org level ignores, and the project policy on snyk.io.
@@ -162,9 +162,9 @@ Specify a custom Snyk project name.
 
 ### `--target-reference=<TARGET_REFERENCE>`
 
-Specify a reference which differentiates this project, for example, a branch name or version. Projects having the same reference can be grouped based on that reference. Supported for Snyk Open Source except for use with `--unmanaged`.
+Specify a reference that differentiates this project, for example, a branch name or version. Projects having the same reference can be grouped based on that reference. Supported for Snyk Open Source except for use with `--unmanaged`.
 
-For more information see [Separating projects by branch or version](https://docs.snyk.io/snyk-cli/secure-your-projects-in-the-long-term/grouping-projects-by-branch-or-version)
+For more information see [Group projects by branch or version](https://docs.snyk.io/snyk-cli/secure-your-projects-in-the-long-term/grouping-projects-by-branch-or-version)
 
 You can use `--target-reference=<TARGET_REFERENCE>` when running tests to apply the same ignores and policies as for a monitored target.
 
@@ -210,17 +210,17 @@ Report only vulnerabilities at the specified level or higher.
 
 ### `--fail-on=<all|upgradable|patchable>`
 
-Fail only when there are vulnerabilities that can be fixed.
+Fail only when there are vulnerabilities that can be fixed. Use one of the values as follows:
 
-- `all`: fail when there is at least one vulnerability that can be either upgraded or patched.
-- `upgradable`: fail when there is at least one vulnerability that can be upgraded.
-- `patchable`: fail when there is at least one vulnerability that can be patched or vulnerabilities that can be either patched or upgraded.
+- `all`: Use to fail when there is at least one vulnerability that can be either upgraded or patched.
+- `upgradable`: Use to fail when there is at least one vulnerability that can be upgraded.
+- `patchable`: Use to fail when there is at least one vulnerability that can be patched. Note that when you use patchable, the test will also fail if at least one vulnerability can be patched and other vulnerabilities found can be upgraded.
 
-To fail on any vulnerability (the default behavior), do not use the `--fail-on` option. If vulnerabilities do not have a fix and this option is being used, tests pass.
+To fail on any Snyk-discoverable vulnerability (the default behavior), do not use the `--fail-on` option. If vulnerabilities do not have a Snyk-computed fix and this option is being used, tests pass.
+
+**Note**: If you test code constrained by metadata that Snyk cannot respect with `snyk test`, Snyk will not propose a fix, in order to avoid breaking your code. You may be able to identify and apply a fix manually.
 
 ## Options for Maven projects
-
-For more information see [CLI help for Maven Projects: Aggregate projects](https://docs.snyk.io/scan-application-code/snyk-open-source/language-and-package-manager-support/snyk-for-java-gradle-maven#cli-help-for-maven-projects-aggregate-projects)
 
 **Note**: The `--dev` option can be used with Maven projects. See also the [`--dev` option help](https://docs.snyk.io/snyk-cli/commands/test#dev)
 
@@ -251,8 +251,6 @@ Auto-detect Maven, JAR, WAR, and AAR files recursively from the current folder.&
 ## Options for Gradle projects
 
 **Note:** If you see the invalid string length error, refer to [Invalid string length error when scanning projects](https://docs.snyk.io/snyk-cli/test-for-vulnerabilities/invalid-string-length-error-when-scanning-projects)
-
-For more information see [CLI help for Gradle projects](https://docs.snyk.io/scan-application-code/snyk-open-source/language-and-package-manager-support/snyk-for-java-gradle-maven#cli-help-for-gradle-projects)
 
 ### `--sub-project=<NAME>`, `--gradle-sub-project=<NAME>`
 
@@ -296,7 +294,7 @@ When you are monitoring a .NET project using NuGet `PackageReference` uses the p
 
 ### `--file=<filename>.sln`
 
-Test all .NET projects included in the given `.sln` file. Projects referred to must have supported manifests. See [Snyk for .NET](https://docs.snyk.io/scan-application-code/snyk-open-source/snyk-open-source-supported-languages-and-package-managers/snyk-for-.net#snyk-cli-for-.net-projects)
+Test all .NET projects included in the given `.sln` file. Projects referred to must have supported manifests.
 
 Example: `snyk test --file=myApp.sln`
 
@@ -454,8 +452,6 @@ Use this option to see what files contributed to each dependency identified.
 
 To see how confident Snyk is about the identified dependency and its version, use the `--print-deps` or `--print-dep-paths` option.
 
-For more information on uses of CLI options for C/C++ projects see [Snyk for C / C++](https://docs.snyk.io/products/snyk-open-source/language-and-package-manager-support/snyk-for-c-c++)
-
 ## Options for build tools
 
 ### `-- [<CONTEXT-SPECIFIC_OPTIONS>]`
@@ -471,8 +467,6 @@ Example: `snyk test -- --build-cache`
 Example: Use `snyk test --org=myorg -- -s settings.xml`
 
 NOT `snyk test --org=myorg -- "-s settings.xml"`
-
-See also [Examples of how you can use Maven arguments with the Snyk CLI](https://docs.snyk.io/scan-application-code/snyk-open-source/language-and-package-manager-support/snyk-for-java-gradle-maven#examples-of-how-you-can-use-maven-arguments-with-the-snyk-cli)
 
 ## Examples for the snyk test command
 

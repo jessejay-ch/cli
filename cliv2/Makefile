@@ -5,6 +5,7 @@ GOOS = $(shell go env GOOS)
 GOARCH = $(shell go env GOARCH)
 GOHOSTOS = $(shell go env GOHOSTOS)
 GOHOSTARCH = $(shell go env GOHOSTARCH)
+LS_COMMIT_HASH = $(shell cat go.mod | grep snyk-ls | cut -d "-" -f 4)
 FIPS_CRYPTO_BACKEND_DEFAULT = opensslcrypto
 FIPS_CRYPTO_BACKEND =
 HASH = sha
@@ -14,6 +15,7 @@ CLI_V1_LOCATION =
 USE_LEGACY_EXECUTABLE_NAME =
 LDFLAGS = -s -w
 SHASUM_CMD = shasum
+export LS_PROTOCOL_VERSION=
 
 # Make directories per convention
 prefix = /usr/local
@@ -40,8 +42,6 @@ _SEPARATOR = _
 
 ifeq ($(_V1_OS), darwin)
 	_V1_OS = macos
-#temporarily ignoring any architecture for macos v1 binaries, this will enable to natively compile v2 as darwin arm64 and bundle v1 as amd64
-	_V1_ARCH = 
 else ifeq ($(_V1_OS), windows)
 	_V1_OS = win
 	_EXE_POSTFIX = .exe
@@ -136,15 +136,15 @@ summary:
 	@echo "$(LOG_PREFIX)  Non-Standard Crypto-Backend:  $(FIPS_CRYPTO_BACKEND)"
 	@echo "$(LOG_PREFIX)  Building Binary:              $(BUILD_DIR)/$(V2_EXECUTABLE_NAME)"
 	@echo "$(LOG_PREFIX)  Building version:             $(CLI_V1_VERSION_TAG)"
-
+	@echo "$(LOG_PREFIX)  LS version:                   $(LS_COMMIT_HASH)"
 
 # prepare the workspace and cache global parameters
 .PHONY: configure
 configure: summary $(CACHE_DIR) $(CACHE_DIR)/variables.mk $(V1_DIRECTORY)/$(V1_EMBEDDED_FILE_OUTPUT) dependencies $(CACHE_DIR)/prepare-3rd-party-licenses
 
-$(BUILD_DIR)/$(V2_EXECUTABLE_NAME): $(BUILD_DIR) $(SRCS)
+$(BUILD_DIR)/$(V2_EXECUTABLE_NAME): $(BUILD_DIR) $(SRCS) generate-ls-protocol-metadata
 	@echo "$(LOG_PREFIX) Building ( $(BUILD_DIR)/$(V2_EXECUTABLE_NAME) )"
-	@GOEXPERIMENT=$(FIPS_CRYPTO_BACKEND) GOOS=$(_GO_OS) GOARCH=$(GOARCH) $(GOCMD) build -tags=application -ldflags="$(LDFLAGS) -X main.internalOS=$(GOOS) -X github.com/snyk/cli/cliv2/internal/embedded/cliv1.snykCLIVersion=$(CLI_V1_VERSION_TAG)" -o $(BUILD_DIR)/$(V2_EXECUTABLE_NAME) $(WORKING_DIR)/cmd/cliv2/main.go
+	@GOEXPERIMENT=$(FIPS_CRYPTO_BACKEND) GOOS=$(_GO_OS) GOARCH=$(GOARCH) $(GOCMD) build -tags=application -ldflags="$(LDFLAGS) -X github.com/snyk/snyk-ls/application/config.Version=$(LS_COMMIT_HASH) -X github.com/snyk/snyk-ls/application/config.LsProtocolVersion=$(LS_PROTOCOL_VERSION)  -X main.internalOS=$(GOOS) -X github.com/snyk/cli/cliv2/internal/embedded/cliv1.snykCLIVersion=$(CLI_V1_VERSION_TAG)" -o $(BUILD_DIR)/$(V2_EXECUTABLE_NAME) $(WORKING_DIR)/cmd/cliv2/*.go
 
 .PHONY: fips
 fips:
@@ -206,12 +206,20 @@ $(V1_WORKING_DIR)/$(V1_BINARY_FOLDER)/$(V1_EXECUTABLE_NAME):
 	@echo "$(LOG_PREFIX) Building legacy CLI"
 	@cd $(V1_WORKING_DIR) && npm i && npm run $(V1_BUILD_TYPE)
 	@$(MAKE) -C $(V1_WORKING_DIR) $(V1_BINARY_FOLDER)/$(V1_EXECUTABLE_NAME) BINARY_RELEASES_FOLDER_TS_CLI=$(V1_BINARY_FOLDER)
-	
+
 .PHONY: build-ts-cli
 build-ts-cli: $(V1_WORKING_DIR)/$(V1_BINARY_FOLDER)/$(V1_EXECUTABLE_NAME)
 	$(eval CLI_V1_VERSION_TAG := $(shell cat $(V1_WORKING_DIR)/$(V1_BINARY_FOLDER)/version))
 	$(eval CLI_V1_LOCATION := $(V1_WORKING_DIR)/$(V1_BINARY_FOLDER)/)
-	
+
+.PHONY: generate-ls-protocol-metadata
+generate-ls-protocol-metadata:
+	$(eval CLI_V1_VERSION_TAG := $(shell cat $(DESTDIR)$(bindir)/version))
+	@echo "$(LOG_PREFIX) Determining LS protocol version"
+	@echo "$(LOG_PREFIX) Writing protocol version file to $(DESTDIR)$(bindir)"
+	$(eval LS_PROTOCOL_VERSION := $(shell $(PYTHON) $(WORKING_DIR)/../release-scripts/write-ls-protocol-version.py $(LS_COMMIT_HASH) $(CLI_V1_VERSION_TAG) $(DESTDIR)$(bindir)))
+	@echo "$(LOG_PREFIX) LS protocol version: $(LS_PROTOCOL_VERSION)"
+
 .PHONY: clean-ts-cli
 clean-ts-cli:
 	@echo "$(LOG_PREFIX) Cleaning legacy CLI"
@@ -235,7 +243,7 @@ clean:
 	@rm -f -r $(BUILD_DIR)
 	@rm -f -r $(CACHE_DIR)
 	@rm -f $(V1_DIRECTORY)/$(APPLICATION_NAME)-*
-	@rm -f $(V1_DIRECTORY)/$(V1_EMBEDDED_FILE_OUTPUT)
+	@rm -f $(V1_DIRECTORY)/embedded*.go
 	@rm -f -r $(EMBEDDED_DATA_DIR)/licenses
 
 .PHONY: install

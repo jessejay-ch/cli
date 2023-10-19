@@ -3,18 +3,20 @@ package basic_workflows
 import (
 	"bufio"
 	"bytes"
+	"net/http"
+	"os"
+
 	"github.com/pkg/errors"
-	"github.com/snyk/cli/cliv2/internal/cliv2"
-	"github.com/snyk/cli/cliv2/internal/constants"
-	"github.com/snyk/cli/cliv2/internal/proxy"
 	"github.com/snyk/go-application-framework/pkg/auth"
 	"github.com/snyk/go-application-framework/pkg/configuration"
 	pkg_utils "github.com/snyk/go-application-framework/pkg/utils"
 	"github.com/snyk/go-application-framework/pkg/workflow"
 	"github.com/snyk/go-httpauth/pkg/httpauth"
 	"github.com/spf13/pflag"
-	"net/http"
-	"os"
+
+	"github.com/snyk/cli/cliv2/internal/cliv2"
+	"github.com/snyk/cli/cliv2/internal/constants"
+	"github.com/snyk/cli/cliv2/internal/proxy"
 )
 
 var WORKFLOWID_LEGACY_CLI workflow.Identifier = workflow.NewWorkflowIdentifier("legacycli")
@@ -36,13 +38,19 @@ func Init(engine workflow.Engine) error {
 	return nil
 }
 
-func FilteredArgs(args []string) []string {
+func finalizeArguments(args []string, unknownArgs []string) []string {
 	// filter args not meant to be forwarded to CLIv1 or an Extensions
 	elementsToFilter := []string{"--" + PROXY_NOAUTH}
 	filteredArgs := args
 	for _, element := range elementsToFilter {
 		filteredArgs = pkg_utils.RemoveSimilar(filteredArgs, element)
 	}
+
+	if len(unknownArgs) > 0 && !pkg_utils.Contains(args, "--") {
+		filteredArgs = append(filteredArgs, "--")
+		filteredArgs = append(filteredArgs, unknownArgs...)
+	}
+
 	return filteredArgs
 }
 
@@ -64,11 +72,10 @@ func legacycliWorkflow(
 	args := config.GetStringSlice(configuration.RAW_CMD_ARGS)
 	useStdIo := config.GetBool(configuration.WORKFLOW_USE_STDIO)
 	isDebug := config.GetBool(configuration.DEBUG)
-	cacheDirectory := config.GetString(configuration.CACHE_PATH)
 	workingDirectory := config.GetString(configuration.WORKING_DIRECTORY)
-	insecure := config.GetBool(configuration.INSECURE_HTTPS)
 	proxyAuthenticationMechanismString := config.GetString(configuration.PROXY_AUTHENTICATION_MECHANISM)
 	proxyAuthenticationMechanism := httpauth.AuthenticationMechanismFromString(proxyAuthenticationMechanismString)
+	analyticsDisabled := config.GetBool(configuration.ANALYTICS_DISABLED)
 
 	debugLogger.Println("Arguments:", args)
 	debugLogger.Println("Use StdIO:", useStdIo)
@@ -76,12 +83,18 @@ func legacycliWorkflow(
 
 	// init cli object
 	var cli *cliv2.CLI
-	cli, err = cliv2.NewCLIv2(cacheDirectory, debugLogger)
+	cli, err = cliv2.NewCLIv2(config, debugLogger)
 	if err != nil {
 		return output, err
 	}
 
 	cli.WorkingDirectory = workingDirectory
+
+	// ensure to disable analytics based on configuration
+	if _, exists := os.LookupEnv(constants.SNYK_ANALYTICS_DISABLED_ENV); !exists && analyticsDisabled {
+		env := []string{constants.SNYK_ANALYTICS_DISABLED_ENV + "=1"}
+		cli.AppendEnvironmentVariables(env)
+	}
 
 	if oauthIsAvailable {
 		// The Legacy CLI doesn't support oauth authentication. Oauth authentication is implemented in the Extensible CLI and is added
@@ -114,7 +127,7 @@ func legacycliWorkflow(
 	}
 
 	// init proxy object
-	wrapperProxy, err := proxy.NewWrapperProxy(insecure, cacheDirectory, cliv2.GetFullVersion(), debugLogger)
+	wrapperProxy, err := proxy.NewWrapperProxy(config, cliv2.GetFullVersion(), debugLogger)
 	if err != nil {
 		return output, errors.Wrap(err, "Failed to create proxy!")
 	}
@@ -135,7 +148,7 @@ func legacycliWorkflow(
 
 	// run the cli
 	proxyInfo := wrapperProxy.ProxyInfo()
-	err = cli.Execute(proxyInfo, FilteredArgs(args))
+	err = cli.Execute(proxyInfo, finalizeArguments(args, config.GetStringSlice(configuration.UNKNOWN_ARGS)))
 
 	if !useStdIo {
 		outWriter.Flush()

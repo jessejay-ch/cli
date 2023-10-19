@@ -38,12 +38,12 @@ executors:
       - image: alpine:3.17
   docker-amd64:
     docker:
-      - image: bastiandoetsch209/cli-build:20230815-154734
+      - image: bastiandoetsch209/cli-build:20230912-103845
     working_directory: /mnt/ramdisk/snyk
     resource_class: large
   docker-arm64:
     docker:
-      - image: bastiandoetsch209/cli-build-arm64:20230815-154734
+      - image: bastiandoetsch209/cli-build-arm64:20230912-103845
     working_directory: /mnt/ramdisk/snyk
     resource_class: arm.large
   linux-ubuntu-mantic-amd64:
@@ -86,16 +86,11 @@ executors:
       - image: ubuntu:focal
     working_directory: /mnt/ramdisk/snyk
     resource_class: arm.medium
-  macos-amd64:
-    macos:
-      # https://circleci.com/docs/2.0/testing-ios/#supported-xcode-versions
-      xcode: '14.3.1'
-    resource_class: macos.x86.medium.gen2
   macos-arm64:
     macos:
       # https://circleci.com/docs/2.0/testing-ios/#supported-xcode-versions
       xcode: '14.3.1'
-    resource_class: macos.m1.large.gen1
+    resource_class: macos.m1.medium.gen1
   win-server2022-amd64:
     machine:
       image: windows-server-2022-gui:2023.07.1
@@ -181,6 +176,23 @@ commands:
           key: chocolatey-cache-v3-{{ arch }}-{{ checksum ".circleci/chocolatey.config" }}
           paths:
             - ~\AppData\Local\Temp\chocolatey
+      - install-deps-python:
+          os: win
+
+  install-deps-windows-signing:
+    steps:
+      - run:
+          name: Install DigiCert Keylocker Tools
+          command: |
+            cd C:\
+            curl.exe -X GET  https://one.digicert.com/signingmanager/api-ui/v1/releases/smtools-windows-x64.msi/download -H "x-api-key:$env:SM_API_KEY" -o smtools-windows-x64.msi
+            msiexec.exe /i smtools-windows-x64.msi /quiet /qn | Wait-Process
+            & 'C:\Program Files\DigiCert\DigiCert One Signing Manager Tools\smksp_cert_sync.exe'
+
+  install-deps-windows-full-signing:
+    steps:
+      - install-deps-windows-full
+      - install-deps-windows-signing
 
   install-deps-windows-make:
     steps:
@@ -198,6 +210,9 @@ commands:
           key: chocolatey-cache-v3-{{ arch }}-{{ checksum ".circleci/chocolatey.config" }}
           paths:
             - ~\AppData\Local\Temp\chocolatey
+      - install-deps-python:
+          os: win
+      - install-deps-windows-signing
 
   install-deps-windows-node:
     steps:
@@ -224,12 +239,44 @@ commands:
           name: No dependencies to install
           command: echo all done!
 
+  install-deps-python:
+    parameters:
+      os:
+        type: string
+        default: linux
+      modules:
+        type: string
+        default: requests PyYAML
+    steps:
+      - when:
+          condition:
+            matches:
+              pattern: '^(linux.*|macos.*|alpine.*|docker.*)'
+              value: << parameters.os >>
+          steps:
+            - run:
+                name: Installing python modules
+                command: python3 -m pip install << parameters.modules >>
+      - when:
+          condition:
+            matches:
+              pattern: '^(win.*|cbl-mariner.*)'
+              value: << parameters.os >>
+          steps:
+            - run:
+                shell: bash.exe
+                name: Installing python modules
+                command: python -m pip install << parameters.modules >>
+
   install-deps-macos-full:
     parameters:
       items:
         type: string
         default: go gradle python elixir composer gradle@6 maven sbt dotnet
     steps:
+      - run:
+          name: Installing Rosetta
+          command: softwareupdate --install-rosetta --agree-to-license
       - restore_cache:
           key: acceptance-tests-macos-<< parameters.items >>
       - run:
@@ -240,6 +287,20 @@ commands:
           key: acceptance-tests-macos-<< parameters.items >>
           paths:
             - ~/Library/Caches/Homebrew
+      - install-deps-python:
+          os: macos
+
+  install-deps-macos-build:
+    parameters:
+      items:
+        type: string
+        default: go gradle python elixir composer gradle@6 maven sbt dotnet
+    steps:
+      - run:
+          name: Installing Rosetta
+          command: softwareupdate --install-rosetta --agree-to-license
+      - install-deps-python:
+          os: macos
 
   install-deps-alpine-full:
     steps:
@@ -247,7 +308,7 @@ commands:
           name: Installing Node.js + other test dependencies
           command: |
             apk add --update nodejs npm bash maven git go gradle python3 py3-pip elixir composer
-            pip3 install pipenv
+            pip3 install pipenv requests PyYAML
 
   failed-release-notification:
     steps:
@@ -349,7 +410,19 @@ workflows:
           go_os: darwin
           go_arch: amd64
           go_download_base_url: << pipeline.parameters.go_download_base_url >>
-          executor: macos-amd64
+          executor: macos-arm64
+          install_deps_extension: macos-build
+          requires:
+            - prepare-build
+
+      - build-artifact:
+          name: build macOS arm64
+          go_target_os: darwin
+          go_os: darwin
+          go_arch: arm64
+          go_download_base_url: << pipeline.parameters.go_download_base_url >>
+          executor: macos-arm64
+          install_deps_extension: macos-build
           requires:
             - prepare-build
 
@@ -360,7 +433,7 @@ workflows:
           go_arch: amd64
           go_download_base_url: << pipeline.parameters.fips_go_download_base_url >>
           make_target: build clean-golang build-fips
-          install_deps_extension: windows-full
+          install_deps_extension: windows-full-signing
           install_path: 'C:\'
           executor: win-server2022-amd64
           context: snyk-windows-signing
@@ -369,7 +442,7 @@ workflows:
 
       - regression-tests:
           name: regression-tests
-          context: nodejs-install
+          context: team_hammerhead-cli
           filters:
             branches:
               ignore: master
@@ -441,9 +514,9 @@ workflows:
             branches:
               ignore: master
           requires:
-            - build macOS amd64
-          executor: macos-amd64
-          test_snyk_command: ./binary-releases/snyk-macos
+            - build macOS arm64
+          executor: macos-arm64
+          test_snyk_command: ./binary-releases/snyk-macos-arm64
           install_deps_extension: macos-full
 
       - acceptance-tests:
@@ -485,7 +558,22 @@ workflows:
             - build macOS amd64
           go_os: darwin
           go_arch: amd64
-          executor: macos-amd64
+          executor: macos-arm64
+          install_deps_extension: noop
+          filters:
+            branches:
+              only:
+                - master
+                - '/.*e2e.*/'
+
+      - sign:
+          name: sign macos arm64
+          context: snyk-macos-signing
+          requires:
+            - build macOS arm64
+          go_os: darwin
+          go_arch: arm64
+          executor: macos-arm64
           install_deps_extension: noop
           filters:
             branches:
@@ -498,6 +586,7 @@ workflows:
           context: snyk-cli-pgp-signing
           requires:
             - sign macos amd64
+            - sign macos arm64
             - sign windows amd64
             - build alpine amd64
             - build linux amd64
@@ -539,7 +628,7 @@ workflows:
               executor:
                 - 'docker-amd64'
                 - 'win-server2019-amd64'
-                - 'macos-amd64'
+                - 'macos-arm64'
           requires:
             - upload version
           filters:
@@ -558,7 +647,7 @@ workflows:
                 - 'docker-arm64'
                 - 'win-server2019-amd64'
                 - 'win-server2022-amd64'
-                - 'macos-amd64'
+                - 'macos-arm64'
                 - 'linux-ubuntu-latest-amd64'
                 - 'linux-ubuntu-mantic-amd64'
                 - 'linux-ubuntu-jammy-amd64'
@@ -612,12 +701,12 @@ workflows:
           requires:
             - Validate NPM artifacts (docker-amd64)
             - Validate NPM artifacts (win-server2019-amd64)
-            - Validate NPM artifacts (macos-amd64)
+            - Validate NPM artifacts (macos-arm64)
             - e2e tests (docker-amd64)
             - e2e tests (docker-arm64)
             - e2e tests (win-server2019-amd64)
             - e2e tests (win-server2022-amd64)
-            - e2e tests (macos-amd64)
+            - e2e tests (macos-arm64)
             - e2e tests (linux-ubuntu-latest-amd64)
             - e2e tests (linux-ubuntu-mantic-amd64)
             - e2e tests (linux-ubuntu-jammy-amd64)
@@ -647,6 +736,16 @@ workflows:
           context: team-hammerhead-common-deploy-tokens
           requires:
             - upload github
+          filters:
+            branches:
+              only:
+                - master
+
+      - trigger-building-snyk-images:
+          name: Trigger building snyk-images
+          context: team-hammerhead-common-deploy-tokens
+          requires:
+            - upload npm
           filters:
             branches:
               only:
@@ -703,7 +802,7 @@ jobs:
       - snyk/scan:
           command: code test
           fail-on-issues: true
-          monitor-on-build: false
+          monitor-on-build: true
           severity-threshold: high
 
   test-code:
@@ -911,6 +1010,11 @@ jobs:
       - run:
           name: Validating artifacts
           command: ./release-scripts/validate-checksums.sh
+      - run:
+          name: Generate Protocol Version File
+          command: |
+            make ls-protocol-metadata
+            cp binary-releases/ls-protocol-version-* binary-releases/fips/
       - store_artifacts:
           path: ./binary-releases
       - persist_to_workspace:
@@ -924,6 +1028,8 @@ jobs:
             - binary-releases/fips/snyk-*.sha256
             - binary-releases/RELEASE_NOTES.md
             - binary-releases/snyk.tgz
+            - binary-releases/ls-protocol-version-*
+            - binary-releases/fips/ls-protocol-version-*
 
   pre-release:
     executor: docker-amd64
@@ -985,7 +1091,7 @@ jobs:
               pattern: '^linux.*'
               value: << parameters.executor >>
           steps:
-            - run: apt update && apt install -y sudo curl python3 python3-pip python3-requests
+            - run: echo UTC > /etc/timezone && apt update && apt install -y sudo curl python3 python3-pip python3-requests
 
       - run:
           name: Checking Snyk CLI
@@ -1025,4 +1131,13 @@ jobs:
       - run:
           name: Publish to npm
           command: ./release-scripts/upload-artifacts.sh npm
+      - failed-release-notification
+
+  trigger-building-snyk-images:
+    executor: docker-amd64
+    steps:
+      - prepare-workspace
+      - run:
+          name: Trigger build-and-publish workflow at snyk-images
+          command: ./release-scripts/upload-artifacts.sh trigger-snyk-images
       - failed-release-notification

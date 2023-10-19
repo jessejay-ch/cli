@@ -4,16 +4,11 @@ package main
 import _ "github.com/snyk/go-application-framework/pkg/networking/fips_enable"
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/snyk/go-application-framework/pkg/networking/fips"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
@@ -21,25 +16,29 @@ import (
 	"github.com/snyk/cli-extension-dep-graph/pkg/depgraph"
 	"github.com/snyk/cli-extension-iac-rules/iacrules"
 	"github.com/snyk/cli-extension-sbom/pkg/sbom"
-	"github.com/snyk/cli/cliv2/internal/cliv2"
-	"github.com/snyk/cli/cliv2/internal/constants"
-	"github.com/snyk/cli/cliv2/pkg/basic_workflows"
+	"github.com/snyk/container-cli/pkg/container"
 	"github.com/snyk/go-application-framework/pkg/analytics"
 	"github.com/snyk/go-application-framework/pkg/app"
 	"github.com/snyk/go-application-framework/pkg/auth"
 	"github.com/snyk/go-application-framework/pkg/configuration"
 	localworkflows "github.com/snyk/go-application-framework/pkg/local_workflows"
 	"github.com/snyk/go-application-framework/pkg/networking"
+	"github.com/snyk/go-application-framework/pkg/utils"
 	"github.com/snyk/go-application-framework/pkg/workflow"
 	"github.com/snyk/go-httpauth/pkg/httpauth"
 	"github.com/snyk/snyk-iac-capture/pkg/capture"
+	snykls "github.com/snyk/snyk-ls/ls_extension"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/snyk/cli/cliv2/internal/cliv2"
+	"github.com/snyk/cli/cliv2/internal/constants"
+	"github.com/snyk/cli/cliv2/pkg/basic_workflows"
 )
 
 var internalOS string
 var engine workflow.Engine
-var config configuration.Configuration
+var globalConfiguration configuration.Configuration
 var helpProvided bool
 var debugLogger = zerolog.New(zerolog.ConsoleWriter{
 	Out:        os.Stderr,
@@ -98,7 +97,7 @@ func initApplicationConfiguration(config configuration.Configuration) {
 	config.AddAlternativeKeys(configuration.AUTHENTICATION_BEARER_TOKEN, []string{"snyk_docker_token"})
 	config.AddAlternativeKeys(configuration.API_URL, []string{"endpoint"})
 	config.AddAlternativeKeys(configuration.ADD_TRUSTED_CA_FILE, []string{"NODE_EXTRA_CA_CERTS"})
-	config.AddAlternativeKeys(configuration.ANALYTICS_DISABLED, []string{"snyk_analytics_disabled", "snyk_cfg_disable_analytics", "disable-analytics", "disable_analytics"})
+	config.AddAlternativeKeys(configuration.ANALYTICS_DISABLED, []string{strings.ToLower(constants.SNYK_ANALYTICS_DISABLED_ENV), "snyk_cfg_disable_analytics", "disable-analytics", "disable_analytics"})
 
 	// if the CONFIG_KEY_OAUTH_TOKEN is specified as env var, we don't apply any additional logic
 	_, ok := os.LookupEnv(auth.CONFIG_KEY_OAUTH_TOKEN)
@@ -137,8 +136,32 @@ func getFullCommandString(cmd *cobra.Command) string {
 	return name
 }
 
+func updateConfigFromParameter(config configuration.Configuration, args []string, rawArgs []string) {
+	// extract everything behind --
+	doubleDashArgs := []string{}
+	doubleDashFound := false
+	for _, v := range rawArgs {
+		if doubleDashFound {
+			doubleDashArgs = append(doubleDashArgs, v)
+		} else if v == "--" {
+			doubleDashFound = true
+		}
+	}
+	config.Set(configuration.UNKNOWN_ARGS, doubleDashArgs)
+
+	// only consider the first positional argument as input directory if it is not behind a double dash.
+	if len(args) > 0 && !utils.Contains(doubleDashArgs, args[0]) {
+		config.Set(configuration.INPUT_DIRECTORY, args[0])
+	}
+}
+
 // main workflow
 func runCommand(cmd *cobra.Command, args []string) error {
+	// since cobra doesn't tell us if -- was found, os.Args is required in addition
+	return runMainWorkflow(globalConfiguration, cmd, args, os.Args)
+}
+
+func runMainWorkflow(config configuration.Configuration, cmd *cobra.Command, args []string, rawArgs []string) error {
 
 	err := config.AddFlagSet(cmd.Flags())
 	if err != nil {
@@ -146,13 +169,11 @@ func runCommand(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	updateConfigFromParameter(config, args, rawArgs)
+
 	name := getFullCommandString(cmd)
 	debugLogger.Print("Running ", name)
 	engine.GetAnalytics().SetCommand(name)
-
-	if len(args) > 0 {
-		config.Set(configuration.INPUT_DIRECTORY, args[0])
-	}
 
 	data, err := engine.Invoke(workflow.NewWorkflowIdentifier(name))
 	if err == nil {
@@ -193,15 +214,15 @@ func defaultCmd(args []string) error {
 	// prepare the invocation of the legacy CLI by
 	// * enabling stdio
 	// * by specifying the raw cmd args for it
-	config.Set(configuration.WORKFLOW_USE_STDIO, true)
-	config.Set(configuration.RAW_CMD_ARGS, args)
+	globalConfiguration.Set(configuration.WORKFLOW_USE_STDIO, true)
+	globalConfiguration.Set(configuration.RAW_CMD_ARGS, args)
 	_, err := engine.Invoke(basic_workflows.WORKFLOWID_LEGACY_CLI)
 	return err
 }
 
 func getGlobalFLags() *pflag.FlagSet {
-	globalConfiguration := workflow.GetGlobalConfiguration()
-	globalFLags := workflow.FlagsetFromConfigurationOptions(globalConfiguration)
+	globalConfigurationOptions := workflow.GetGlobalConfiguration()
+	globalFLags := workflow.FlagsetFromConfigurationOptions(globalConfigurationOptions)
 	globalFLags.Bool(basic_workflows.PROXY_NOAUTH, false, "")
 	globalFLags.Bool(disable_analytics_flag, false, "")
 	return globalFLags
@@ -315,11 +336,11 @@ func handleError(err error) HandleError {
 func displayError(err error) {
 	if err != nil {
 		if _, ok := err.(*exec.ExitError); !ok {
-			if config.GetBool(localworkflows.OUTPUT_CONFIG_KEY_JSON) {
+			if globalConfiguration.GetBool(localworkflows.OUTPUT_CONFIG_KEY_JSON) {
 				jsonError := JsonErrorStruct{
 					Ok:       false,
 					ErrorMsg: err.Error(),
-					Path:     config.GetString(configuration.INPUT_DIRECTORY),
+					Path:     globalConfiguration.GetString(configuration.INPUT_DIRECTORY),
 				}
 
 				jsonErrorBuffer, _ := json.MarshalIndent(jsonError, "", "  ")
@@ -331,91 +352,6 @@ func displayError(err error) {
 	}
 }
 
-func logHeaderAuthorizationInfo(
-	config configuration.Configuration,
-	networkAccess networking.NetworkAccess,
-) (string, string) {
-	oauthEnabled := "Disabled"
-	authorization := ""
-	tokenShaSum := ""
-	tokenDetails := ""
-
-	apiRequest := &http.Request{
-		URL:    config.GetUrl(configuration.API_URL),
-		Header: http.Header{},
-	}
-	err := networkAccess.GetAuthenticator().AddAuthenticationHeader(apiRequest)
-	if err != nil {
-		return authorization, oauthEnabled
-	}
-
-	authHeader := apiRequest.Header.Get("Authorization")
-	splitHeader := strings.Split(authHeader, " ")
-	if len(splitHeader) == 2 {
-		tokenType := splitHeader[0]
-		token := splitHeader[1]
-		temp := sha256.Sum256([]byte(token))
-		tokenShaSum = hex.EncodeToString(temp[0:16]) + "[...]"
-		tokenDetails = fmt.Sprintf(" (type=%s)", tokenType)
-	}
-
-	if config.GetBool(configuration.FF_OAUTH_AUTH_FLOW_ENABLED) {
-		oauthEnabled = "Enabled"
-		token, err := auth.GetOAuthToken(config)
-		if token != nil && err == nil {
-			tokenDetails = fmt.Sprintf(" (type=oauth; expiry=%v)", token.Expiry.UTC())
-		}
-	}
-
-	authorization = fmt.Sprintf("%s %s", tokenShaSum, tokenDetails)
-
-	return authorization, oauthEnabled
-}
-
-func getFipsStatus(config configuration.Configuration) string {
-	fipsEnabled := "Disabled"
-	if !fips.IsAvailable() {
-		fipsEnabled = "Not available"
-	} else if config.GetBool(configuration.FIPS_ENABLED) {
-		fipsEnabled = "Enabled"
-	}
-	return fipsEnabled
-}
-
-func writeLogHeader(config configuration.Configuration, networkAccess networking.NetworkAccess) {
-	authorization, oauthEnabled := logHeaderAuthorizationInfo(config, networkAccess)
-
-	org := config.GetString(configuration.ORGANIZATION)
-	insecureHTTPS := "false"
-	if config.GetBool(configuration.INSECURE_HTTPS) {
-		insecureHTTPS = "true"
-	}
-
-	analytics := "enabled"
-	if config.GetBool(configuration.ANALYTICS_DISABLED) {
-		analytics = "disabled"
-	}
-
-	tablePrint := func(name string, value string) {
-		debugLogger.Printf("%-22s %s", name+":", value)
-	}
-
-	fipsEnabled := getFipsStatus(config)
-
-	tablePrint("Version", cliv2.GetFullVersion())
-	tablePrint("Platform", internalOS+" "+runtime.GOARCH)
-	tablePrint("API", config.GetString(configuration.API_URL))
-	tablePrint("Cache", config.GetString(configuration.CACHE_PATH))
-	tablePrint("Organization", org)
-	tablePrint("Insecure HTTPS", insecureHTTPS)
-	tablePrint("Analytics", analytics)
-	tablePrint("Authorization", authorization)
-	tablePrint("Features", "")
-	tablePrint("  oauth", oauthEnabled)
-	tablePrint("  fips", fipsEnabled)
-
-}
-
 func MainWithErrorCode() int {
 	var err error
 
@@ -423,20 +359,20 @@ func MainWithErrorCode() int {
 	_ = rootCommand.ParseFlags(os.Args)
 
 	// create engine
-	config = configuration.New()
-	err = config.AddFlagSet(rootCommand.LocalFlags())
+	globalConfiguration = configuration.New()
+	err = globalConfiguration.AddFlagSet(rootCommand.LocalFlags())
 	if err != nil {
 		debugLogger.Print("Failed to add flags to root command", err)
 	}
 
-	debugEnabled := config.GetBool(configuration.DEBUG)
-	debugLogger := getDebugLogger(config)
+	debugEnabled := globalConfiguration.GetBool(configuration.DEBUG)
+	debugLogger := getDebugLogger(globalConfiguration)
 
-	initApplicationConfiguration(config)
-	engine = app.CreateAppEngineWithOptions(app.WithZeroLogger(debugLogger), app.WithConfiguration(config))
+	initApplicationConfiguration(globalConfiguration)
+	engine = app.CreateAppEngineWithOptions(app.WithZeroLogger(debugLogger), app.WithConfiguration(globalConfiguration))
 
-	if noProxyAuth := config.GetBool(basic_workflows.PROXY_NOAUTH); noProxyAuth {
-		config.Set(configuration.PROXY_AUTHENTICATION_MECHANISM, httpauth.StringFromAuthenticationMechanism(httpauth.NoAuth))
+	if noProxyAuth := globalConfiguration.GetBool(basic_workflows.PROXY_NOAUTH); noProxyAuth {
+		globalConfiguration.Set(configuration.PROXY_AUTHENTICATION_MECHANISM, httpauth.StringFromAuthenticationMechanism(httpauth.NoAuth))
 	}
 
 	// initialize the extensions -> they register themselves at the engine
@@ -445,6 +381,8 @@ func MainWithErrorCode() int {
 	engine.AddExtensionInitializer(depgraph.Init)
 	engine.AddExtensionInitializer(capture.Init)
 	engine.AddExtensionInitializer(iacrules.Init)
+	engine.AddExtensionInitializer(snykls.Init)
+	engine.AddExtensionInitializer(container.Init)
 
 	// init engine
 	err = engine.Init()
@@ -467,13 +405,13 @@ func MainWithErrorCode() int {
 	networkAccess.AddHeaderField(
 		"User-Agent",
 		networking.UserAgent(
-			networking.UaWithConfig(config),
+			networking.UaWithConfig(globalConfiguration),
 			networking.UaWithApplication("snyk-cli", cliv2.GetFullVersion()),
 			networking.UaWithOS(internalOS)).String(),
 	)
 
 	if debugEnabled {
-		writeLogHeader(config, networkAccess)
+		writeLogHeader(globalConfiguration, networkAccess)
 	}
 
 	// init Analytics
@@ -481,7 +419,7 @@ func MainWithErrorCode() int {
 	cliAnalytics.SetVersion(cliv2.GetFullVersion())
 	cliAnalytics.SetCmdArguments(os.Args[1:])
 	cliAnalytics.SetOperatingSystem(internalOS)
-	if config.GetBool(configuration.ANALYTICS_DISABLED) == false {
+	if globalConfiguration.GetBool(configuration.ANALYTICS_DISABLED) == false {
 		defer sendAnalytics(cliAnalytics, debugLogger)
 	}
 

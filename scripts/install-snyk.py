@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
 import argparse
 import hashlib
 import os
 import platform
+import time
 
 import requests
 
@@ -10,25 +12,25 @@ def get_os_arch():
     system = platform.system()
     machine = platform.machine()
 
-    if system == 'Linux':
-        if machine == 'x86_64':
-            return 'linux', 'amd64'
-        elif machine == 'aarch64':
-            return 'linux', 'arm64'
+    if system == "Linux":
+        if machine == "x86_64":
+            return "linux", "amd64"
+        elif machine == "aarch64":
+            return "linux", "arm64"
         else:
             print("Unsupported architecture for Linux. Aborting download.")
             return None, None
-    elif system == 'Windows':
-        if machine == 'AMD64':
-            return 'windows', 'amd64'
+    elif system == "Windows":
+        if machine == "AMD64":
+            return "windows", "amd64"
         else:
             print("Unsupported architecture for Windows. Aborting download.")
             return None, None
-    elif system == 'Darwin':
-        if machine == 'x86_64':
-            return 'macos', 'amd64'
-        elif machine == 'arm64':
-            return 'macos', 'arm64'
+    elif system == "Darwin":
+        if machine == "x86_64":
+            return "macos", "amd64"
+        elif machine == "arm64":
+            return "macos", "arm64"
         else:
             print("Unsupported architecture for macOS. Aborting download.")
             return None, None
@@ -37,15 +39,22 @@ def get_os_arch():
         return None, None
 
 
-def download_snyk_cli(version, base_url):
+def download_snyk_cli(download_version, base_url):
+    success = 0
+    fail = 1
+
     os_type, arch_type = get_os_arch()
 
     if not os_type or not arch_type:
         return
 
-    filename, outputFilename = get_filename(arch_type, os_type)
+    filename, output_filename = get_filename(arch_type, os_type)
 
-    url = f"{base_url}/cli/v{version}/{filename}"
+    if download_version != "latest":
+        if download_version[0] != "v":  # Add a "v" prefix if it's missing
+            download_version = f"v{download_version}"
+
+    url = f"{base_url}/cli/{download_version}/{filename}"
 
     response = requests.get(url)
 
@@ -59,56 +68,61 @@ def download_snyk_cli(version, base_url):
 
         downloaded_file_path = filename
 
-        with open(downloaded_file_path, 'wb') as f:
+        with open(downloaded_file_path, "wb") as f:
             f.write(response.content)
 
         if verify_checksum(downloaded_file_path, sha256_checksum):
             os.rename(downloaded_file_path, filename)
-            print(f"Snyk CLI v{version} downloaded successfully to {filename}")
+            print(f"Snyk CLI {download_version} downloaded successfully to {filename}")
 
             # Make the file executable
             os.chmod(filename, 0o755)
-            os.rename(filename, outputFilename)
+            os.rename(filename, output_filename)
 
             print("Running 'snyk -v' to check the version:")
 
-            executable = os.path.join(os.getcwd(), outputFilename)
+            executable = os.path.join(os.getcwd(), output_filename)
             os.system(f"{executable} -v")
 
         else:
             os.remove(downloaded_file_path)
             print("SHA256 checksum verification failed. Downloaded file deleted.")
+            return fail
+        return success
     else:
-        print(f"Failed to download Snyk CLI v{version}")
+        print(f"Failed to download Snyk CLI {download_version}")
+        return fail
 
 
 def get_filename(arch_type, os_type):
     filename = ""
-    outputFilename = "snyk"
+    output_filename = "snyk"
     suffix = ""
 
-    if os_type == 'linux' and arch_type == 'arm64':
+    if os_type == "linux" and arch_type == "arm64":
         filename = "snyk-linux-arm64"
-    if os_type == 'linux' and arch_type == 'amd64':
+    if os_type == "linux" and arch_type == "amd64":
         filename = "snyk-linux"
         stat_result = os.path.exists("/lib/ld-musl-x86_64.so.1")
         if stat_result:
             filename = "snyk-alpine"
-    if os_type == 'windows' and arch_type == 'amd64':
+    if os_type == "windows" and arch_type == "amd64":
         filename = "snyk-win"
         suffix = ".exe"
-    if os_type == 'macos':
+    if os_type == "macos" and arch_type == "amd64":
         filename = "snyk-macos"
+    if os_type == "macos" and arch_type == "arm64":
+        filename = "snyk-macos-arm64"
 
     filename = filename + suffix
-    outputFilename = outputFilename + suffix
+    output_filename = output_filename + suffix
 
-    return (filename, outputFilename)
+    return filename, output_filename
 
 
 def verify_checksum(file_path, expected_checksum):
     sha256 = hashlib.sha256()
-    with open(file_path, 'rb') as f:
+    with open(file_path, "rb") as f:
         while True:
             data = f.read(65536)
             if not data:
@@ -118,11 +132,36 @@ def verify_checksum(file_path, expected_checksum):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download and install a specific version of Snyk CLI.")
-    parser.add_argument("version", help="Version of Snyk CLI to download (e.g., 1.123.456)")
-    parser.add_argument("--base_url", help="Base URL to download from")
+    parser = argparse.ArgumentParser(
+        description="Download and install a specific version of Snyk CLI."
+    )
+    parser.add_argument(
+        "version", help="Version of Snyk CLI to download (e.g., 1.123.456)"
+    )
+    parser.add_argument(
+        "--base_url", help="Base URL to download from", default="https://static.snyk.io"
+    )
+    parser.add_argument("--retry", help="number of retries", default=3)
 
     args = parser.parse_args()
-    version = args.version
 
-    download_snyk_cli(version, args.base_url)
+    for retry in range(1, args.retry + 1):
+        print(
+            "Trying to download version "
+            + str(args.version)
+            + ": #"
+            + str(retry)
+            + " of #"
+            + str(args.retry)
+        )
+        ret_value = download_snyk_cli(args.version, args.base_url)
+        if ret_value == 0:
+            break
+        else:
+            sleep_time = retry * 10
+            print(
+                "Failed to download Snyk CLI. Retrying in "
+                + str(sleep_time)
+                + " seconds..."
+            )
+            time.sleep(sleep_time)

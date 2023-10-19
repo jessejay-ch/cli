@@ -27,7 +27,6 @@ import * as debugLib from 'debug';
 import { getCodeClientProxyUrl } from '../../code-config';
 import {
   isLocalCodeEngine,
-  validateLocalCodeEngineUrl,
   logLocalCodeEngineVersion,
 } from './localCodeEngine';
 
@@ -40,6 +39,7 @@ type GetCodeAnalysisArgs = {
   };
   connectionOptions: {
     org?: string;
+    orgId?: string;
     source: string;
     baseURL: string;
     requestId: string;
@@ -68,7 +68,6 @@ export async function getCodeTestResults(
   const isLocalCodeEngineEnabled = isLocalCodeEngine(sastSettings);
   if (isLocalCodeEngineEnabled) {
     baseURL = sastSettings.localCodeEngine.url;
-    validateLocalCodeEngineUrl(baseURL);
     if (options.debug) {
       await logLocalCodeEngineVersion(baseURL);
     }
@@ -104,6 +103,7 @@ export async function getCodeTestResults(
       source: 'snyk-cli',
       requestId,
       org: sastSettings.org,
+      orgId: config.orgId,
     },
     analysisOptions: {
       severity: options.severityThreshold

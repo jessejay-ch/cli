@@ -186,6 +186,44 @@ describe('`snyk test` of basic projects for each language/ecosystem', () => {
     expect(code).toEqual(0);
   });
 
+  test.each([
+    {
+      targetFramework: 'net6.0',
+    },
+    {
+      targetFramework: 'net7.0',
+    },
+    {
+      targetFramework: undefined,
+    },
+  ])(
+    'run `snyk test` on a nuget project using v2 dotnet runtime resolution logic with explicit target framework $targetFramework',
+    async ({ targetFramework }) => {
+      const prerequisite = await runCommand('dotnet', ['--version']).catch(
+        function() {
+          return { code: 1, stderr: '', stdout: '' };
+        },
+      );
+
+      if (prerequisite.code !== 0 && !dontSkip) {
+        return;
+      }
+
+      const project = await createProjectFromWorkspace('nuget-app-6-7');
+
+      let command = 'test -d --dotnet-runtime-resolution';
+      if (targetFramework) {
+        command = `test -d --dotnet-runtime-resolution --dotnet-target-framework=${targetFramework}`;
+      }
+
+      const { code } = await runSnykCLI(command, {
+        cwd: project.path(),
+      });
+
+      expect(code).toEqual(0);
+    },
+  );
+
   test('run `snyk test` on an unmanaged project', async () => {
     const project = await createProjectFromWorkspace('unmanaged');
 
@@ -207,6 +245,26 @@ describe('`snyk test` of basic projects for each language/ecosystem', () => {
     );
 
     expect(code).toEqual(1);
+  });
+
+  test('run `snyk test` on an unmanaged project with purls', async () => {
+    const project = await createProjectFromWorkspace('unmanaged');
+
+    const { stdout } = await runSnykCLI(`test --unmanaged -d`, {
+      cwd: project.path(),
+    });
+
+    stdout.includes('purl: pkg:generic/zlib@');
+  });
+
+  test('run `snyk test --json` on an unmanaged project with purls', async () => {
+    const project = await createProjectFromWorkspace('unmanaged');
+
+    const { stdout } = await runSnykCLI(`test --unmanaged -d --json`, {
+      cwd: project.path(),
+    });
+
+    stdout.includes('"purl": "pkg:generic/zlib@');
   });
 
   test('run `snyk test` on a hex project', async () => {

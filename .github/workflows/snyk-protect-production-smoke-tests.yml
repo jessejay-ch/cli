@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu, macos, windows]
-        node_version: [14, 16]
+        node_version: [14, 16, 18]
     runs-on: ${{ matrix.os }}-latest
     steps:
       # Avoid modifying line endings in fixtures.
@@ -40,5 +40,5 @@ jobs:
       - run: npx npm@7 install
       - run: npx npm@7 run test:smoke -w @snyk/protect
         env:
-          SNYK_TOKEN: ${{ secrets.SMOKE_TESTS_SNYK_TOKEN }}
+          SNYK_TOKEN: ${{ secrets.TEST_SNYK_TOKEN }}
           PRODUCTION_TEST: '1'

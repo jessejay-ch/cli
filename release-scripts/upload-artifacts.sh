@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROTOCOL_VERSION_FILE=$(basename "$(/bin/ls binary-releases/ls-protocol-version*)")
+
 declare -a StaticFiles=(
+  "binary-releases/$PROTOCOL_VERSION_FILE"
   "binary-releases/snyk-alpine"
   "binary-releases/snyk-linux"
   "binary-releases/snyk-linux-arm64"
   "binary-releases/snyk-macos"
+  "binary-releases/snyk-macos-arm64"
   "binary-releases/snyk-win.exe"
   "binary-releases/snyk-alpine.sha256"
   "binary-releases/snyk-linux.sha256"
   "binary-releases/snyk-linux-arm64.sha256"
   "binary-releases/snyk-macos.sha256"
+  "binary-releases/snyk-macos-arm64.sha256"
   "binary-releases/snyk-win.exe.sha256"
   "binary-releases/sha256sums.txt.asc"
 )
 
 declare -a StaticFilesFIPS=(
+  "binary-releases/fips/$PROTOCOL_VERSION_FILE"
   "binary-releases/fips/snyk-linux"
   "binary-releases/fips/snyk-linux-arm64"
   "binary-releases/fips/snyk-win.exe"
@@ -56,6 +62,12 @@ show_help() {
   echo ""
   echo "  This will perform a dry run of uploading artifacts to GitHub, npm, and S3 for version v1.0.0"
   echo ""
+  echo -e "\033[1;33mTrigger Build and Publish Snyk Images:\033[0m"  # Set color to yellow
+  echo ""
+  echo "  upload-artifacts.sh trigger-snyk-images"
+  echo ""
+  echo "  This will trigger the build-and-publish workflow in the snyk-images repository."
+  echo ""
 }
 
 upload_github() {
@@ -66,7 +78,7 @@ upload_github() {
       --target "${CIRCLE_SHA1}" \
       --title "${VERSION_TAG}" \
       --notes-file binary-releases/RELEASE_NOTES.md
-    
+
     echo "DRY RUN: deleting draft from GitHub..."
     gh release delete "${VERSION_TAG}" \
       --yes
@@ -92,6 +104,25 @@ upload_npm() {
     npm publish ./binary-releases/snyk-fix.tgz
     npm publish ./binary-releases/snyk-protect.tgz
     npm publish ./binary-releases/snyk.tgz
+  fi
+}
+
+trigger_build_snyk_images() {
+  echo "Triggering build-and-publish workflow at snyk-images..."
+  RESPONSE=$(curl -L \
+    -X POST \
+    -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer $HAMMERHEAD_GITHUB_PAT" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    https://api.github.com/repos/snyk/snyk-images/dispatches \
+    -d "{\"event_type\":\"build_and_push_images\", \"client_payload\": {\"version\": \"$VERSION_TAG\"}}" \
+    -w "%{http_code}" \
+    -o /dev/null)
+  if [ "$RESPONSE" -eq 204 ]; then
+    echo "Successfully triggered build-and-publish workflow at snyk-images."
+  else
+    echo "Failed to trigger build-and-publish workflow at snyk-images. HTTP response code: $RESPONSE."
+    exit 1
   fi
 }
 
@@ -172,9 +203,13 @@ for arg in "${@}"; do
   # Upload files to npm
   elif [ "${arg}" == "npm" ]; then
     upload_npm
-  
+
+  # Trigger building Snyk images in snyk-images repository
+  elif [ "${arg}" == "trigger-snyk-images" ]; then
+    trigger_build_snyk_images
+
   # Upload files to S3 bucket
   else
     upload_s3 "${target}"
-  fi  
+  fi
 done

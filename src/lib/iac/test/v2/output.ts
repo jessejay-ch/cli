@@ -22,7 +22,7 @@ import {
 import { convertEngineToSarifResults } from './sarif';
 import { CustomError, FormattedCustomError } from '../../../errors';
 import { SnykIacTestError } from './errors';
-import stripAnsi from 'strip-ansi';
+import stripAnsi = require('strip-ansi');
 import * as path from 'path';
 import { getErrorStringCode } from '../../../../cli/commands/test/iac/local-execution/error-utils';
 import {
@@ -35,6 +35,7 @@ import {
 } from '../../../formatters/iac-output/text/utils';
 import * as wrapAnsi from 'wrap-ansi';
 import { formatIacTestWarnings } from '../../../formatters/iac-output/text/failures/list';
+import { IacV2Name, IacV2ShortLink } from '../../constants';
 
 export function buildOutput({
   scanResult,
@@ -207,7 +208,7 @@ function wrapWithPadding(s: string, columns: number): string {
 }
 
 function infoMessage(orgSettings: TestOutput): string {
-  return `Your organization ${orgSettings.settings.org} is using Integrated IaC. To switch to Current IaC, use --org=<ORG_ID> to select a different organization. For more information about Integrated IaC, see https://snyk.co/integrated-iac.`;
+  return `Your organization ${orgSettings.settings.org} is using ${IacV2Name}. To switch to Current IaC, use --org=<ORG_ID> to select a different organization. For more information about ${IacV2Name}, see ${IacV2ShortLink}.`;
 }
 
 function assertHasSuccessfulScans(

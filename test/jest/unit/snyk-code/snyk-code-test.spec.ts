@@ -1,7 +1,7 @@
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import stripAnsi from 'strip-ansi';
+import stripAnsi = require('strip-ansi');
 import { analyzeFolders, AnalysisSeverity } from '@snyk/code-client';
 import { makeRequest } from '../../../../src/lib/request';
 
@@ -747,6 +747,7 @@ describe('Test snyk code', () => {
         sessionToken,
         source,
         requestId: 'test-id',
+        orgId: '',
       },
       analysisOptions: {
         severity,
@@ -850,6 +851,7 @@ describe('Test snyk code', () => {
           sessionToken,
           source,
           requestId: 'test-id',
+          orgId: '',
         },
         analysisOptions: {
           severity,
@@ -907,31 +909,6 @@ describe('Test snyk code', () => {
 
     expect(analyzeFoldersSpy.mock.calls[0][0].connection.baseURL).toBe(
       'http://lce:31111/api',
-    );
-  });
-
-  it('Local code engine - should throw error, when enabled and url is missing', async () => {
-    const sastSettings = {
-      sastEnabled: true,
-      localCodeEngine: {
-        url: '',
-        allowCloudUpload: true,
-        enabled: true,
-      },
-    };
-
-    await expect(
-      getCodeTestResults(
-        '.',
-        {
-          path: '',
-          code: true,
-        },
-        sastSettings,
-        'test-id',
-      ),
-    ).rejects.toThrowError(
-      'Missing configuration for Snyk Code Local Engine. Refer to our docs on https://docs.snyk.io/products/snyk-code/deployment-options/snyk-code-local-engine/cli-and-ide to learn more',
     );
   });
 
