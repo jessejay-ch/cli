@@ -6,7 +6,7 @@
     "symfony/symfony": "4.1.13",
     "yiisoft/yii": "1.1.14",
     "zendframework/zendframework": "2.1.0",
-    "aws/aws-sdk-php": "3.0.0",
+    "aws/aws-sdk-php": "3.278.3",
     "doctrine/common": "2.5.0"
   },
   "require-dev": {
